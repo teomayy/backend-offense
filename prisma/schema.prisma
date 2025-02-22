@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  name         String?
+  login        String   @unique
+  password     String
+  role         String   @default("admin")
+  refreshToken String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("admin")
+}
+
+model Inspector {
+  id           String   @id @default(cuid())
+  name         String?
+  login        String   @unique
+  password     String
+  role         String   @default("inspector")
+  refreshToken String?
+  fines        Fine[]
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("inspector")
+}
+
+model Fine {
+  id               String     @id @default(cuid())
+  inspectorId      String     @map("inspector_id")
+  name             String
+  phone            String
+  fineTypeId       String     @map("fine_type_id")
+  baseSalary       Int        @map("base_salary") // Базовый оклад
+  amount           Int // Полная сумма штрафа
+  discountedAmount Int?       @map("discounted_amount") // Сумма со скидкой
+  status           FineStatus
+  paymentReference String     @unique @map("payment_reference") // Уникальный счет для оплаты
+  issuedAt         DateTime   @default(now()) @map("issue_at") // Дата штрафа
+  dueDate          DateTime   @map("due_date") // Дата окончания скидки
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  inspector        Inspector? @relation(fields: [inspectorId], references: [id])
+  FineType         FineType?  @relation(fields: [fineTypeId], references: [id])
+  Payment          Payment[]
+
+  @@map("fine")
+}
+
+model FineType {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  percentage  Float?
+  fixedAmount Int?     @map("fixed_amount")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  fines       Fine[]
+}
+
+enum FineStatus {
+  pending
+  paid
+  deleted
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  fineId        String        @map("fine_id")
+  method        PaymentMethod
+  status        PaymentStatus
+  transactionId String? // ID транзакции в платежной системе
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  fine Fine @relation(fields: [fineId], references: [id])
+
+  @@map("payment")
+}
+
+enum PaymentMethod {
+  payme
+  paynet
+  uzum
+}
+
+enum PaymentStatus {
+  pending
+  success
+  failed
+}
