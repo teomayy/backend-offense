@@ -205,9 +205,9 @@ export class AdminService {
 		const activeFinesCount = await this.prisma.fine.count({
 			where: { status: { in: ['paid', 'pending'] } }
 		})
-		const archivedReportsCount = await this.prisma.fine.count({
-			where: { status: { in: ['deleted'] } }
+		const pendingFines = await this.prisma.fine.count({
+			where: { status: { in: ['pending'] } }
 		})
-		return { inspectorCount, activeFinesCount, archivedReportsCount }
+		return { inspectorCount, activeFinesCount, pendingFines }
 	}
 }
