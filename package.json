@@ -36,6 +36,7 @@
     "cache-manager": "^6.4.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cloudflared": "^0.7.0",
     "cookie-parser": "^1.4.7",
     "csrf-csrf": "^3.1.0",
     "date-fns": "^4.1.0",

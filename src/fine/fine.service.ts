@@ -7,6 +7,7 @@ import {
 import { FineStatus } from '@prisma/client'
 
 import { EskizService } from 'src/eskiz/eskiz.service'
+import { PaymeService } from 'src/payment/payment.service'
 import { PrismaService } from 'src/prisma.service'
 import { CreateFineDto } from './dto/create.fine.dto'
 import { UpdateFineDto } from './dto/update.fine'
@@ -17,7 +18,8 @@ export class FineService {
 
 	constructor(
 		private prisma: PrismaService,
-		private eskizService: EskizService
+		private eskizService: EskizService,
+		private paymeService: PaymeService
 	) {}
 
 	private generatePaymentReference(): string {
@@ -77,8 +79,37 @@ export class FineService {
 			`Вам выписан штраф на сумму ${amount} сум. Если оплатите до ${dueDate.toLocaleDateString()}, сумма составит ${discountedAmount} сум. Оплата по счету: ${fine.paymentReference}.`
 		)
 
+		const receiptRes = await this.paymeService.createReceipt(
+			fine.id,
+			fine.amount,
+			'Оплата штрафа'
+		)
+
+		console.log('🔹 Ответ от Payme API:', JSON.stringify(receiptRes, null, 2))
+
+		if (!receiptRes?.result?.receipt) {
+			throw new Error('Ошибка: Payme не вернул чек (receipt)')
+		}
+
+		await this.prisma.payment.create({
+			data: {
+				fineId: fine.id,
+				method: 'payme',
+				status: 'pending',
+				transactionId: receiptRes.result.receipt._id
+			}
+		})
+
+		const receiptResponse = await this.paymeService.sendReceipt(
+			receiptRes.result.receipt._id,
+			fine.phone,
+			`Вам выставлен штраф на сумму ${fine.amount} сум.`
+		)
+
+		console.log('✅ Чек отправлен в Payme:', receiptResponse)
+
 		this.logger.log(
-			`Инспектор ${inspectorId} выписал штраф ${fine.id} на сумму ${fine.amount} сум.`
+			`Инспектор ${inspectorId} выписал штраф ${fine.name} на сумму ${fine.amount} сум.`
 		)
 
 		return fine
@@ -97,12 +128,25 @@ export class FineService {
 	}
 
 	async deleteFine(fineId: string) {
+		console.log(`🔹 Удаление штрафа с ID: ${fineId}`)
+
 		const fine = await this.getFineById(fineId)
-		if (!fine) throw new NotFoundException('Штраф не найден')
+		if (!fine) {
+			console.error(`❌ Штраф с ID ${fineId} не найден!`)
+			throw new NotFoundException('Штраф не найден')
+		}
 
-		await this.prisma.fine.delete({ where: { id: fineId } })
+		console.log(`✅ Штраф найден: ${JSON.stringify(fine, null, 2)}`)
 
-		return true
+		// Удаление связанных платежей
+		await this.prisma.payment.deleteMany({
+			where: { fineId: fineId }
+		})
+
+		// Удаление штрафа
+		return this.prisma.fine.delete({
+			where: { id: fineId }
+		})
 	}
 
 	async getFinesWithFilters(query: {

@@ -183,6 +183,8 @@ export class AdminService {
 
 		if (!fine) throw new NotFoundException('Штраф не найден')
 
+		this.prisma.payment.deleteMany({ where: { fineId: id } })
+
 		return this.prisma.fine.delete({ where: { id } })
 	}
 

@@ -83,7 +83,7 @@ model Payment {
   fineId        String        @map("fine_id")
   method        PaymentMethod
   status        PaymentStatus
-  transactionId String? // ID транзакции в платежной системе
+  transactionId String        @unique // ID транзакции в платежной системе
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
