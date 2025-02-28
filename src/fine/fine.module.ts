@@ -11,6 +11,7 @@ import { FineService } from './fine.service'
 @Module({
 	imports: [EskizModule, JwtModule.register({}), AuthModule, ConfigModule],
 	providers: [FineService, PrismaService, PaymeService],
-	controllers: [FineController]
+	controllers: [FineController],
+	exports: [FineService]
 })
 export class FineModule {}

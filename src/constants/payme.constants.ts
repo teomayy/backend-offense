@@ -42,9 +42,9 @@ export const PaymeError = {
 		name: 'ProductNotFound',
 		code: -31050,
 		message: {
-			uz: 'Biz mahsulotni topolmadik.',
-			ru: 'Нам не удалось найти товар.',
-			en: 'We could not find the product.'
+			uz: 'Biz jarimani topolmadik.',
+			ru: 'Нам не удалось найти штраф.',
+			en: 'We could not find the fine.'
 		}
 	} as PaymeErrorType,
 
@@ -72,9 +72,9 @@ export const PaymeError = {
 		name: 'AlreadyDone',
 		code: -31060,
 		message: {
-			uz: "Mahsulot uchun to'lov qilingan",
-			ru: 'Оплачено за товар',
-			en: 'Paid for the product'
+			uz: "Jarima uchun to'lov qilingan",
+			ru: 'Штраф оплачен',
+			en: 'The fine has been paid.'
 		}
 	} as PaymeErrorType,
 
@@ -82,9 +82,9 @@ export const PaymeError = {
 		name: 'Pending',
 		code: -31050,
 		message: {
-			uz: "Mahsulot uchun to'lov kutilayapti",
-			ru: 'Ожидается оплата товар',
-			en: 'Payment for the product is pending'
+			uz: "Jarima uchun to'lov kutilayapti",
+			ru: 'Ожидается оплата за штраф',
+			en: 'Payment of fine in pending'
 		}
 	} as PaymeErrorType,
 
@@ -100,8 +100,7 @@ export const PaymeError = {
 }
 
 export enum PaymeData {
-	UserId = 'user_id',
-	ProductId = 'product_id'
+	orderId = 'order_id'
 }
 
 export enum TransactionState {

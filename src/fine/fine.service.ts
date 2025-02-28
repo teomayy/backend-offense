@@ -59,60 +59,78 @@ export class FineService {
 		const dueDate = new Date()
 		dueDate.setDate(dueDate.getDate() + 15)
 
-		const fine = await this.prisma.fine.create({
-			data: {
-				inspectorId,
-				name: dto.name,
-				phone: dto.phone,
-				fineTypeId: dto.fineTypeId,
-				baseSalary,
-				amount,
-				discountedAmount,
-				dueDate,
-				paymentReference: this.generatePaymentReference(),
-				status: FineStatus.pending
+		try {
+			// ✅ Создаём штраф
+			const fine = await this.prisma.fine.create({
+				data: {
+					inspectorId,
+					name: dto.name,
+					phone: dto.phone,
+					fineTypeId: dto.fineTypeId,
+					baseSalary,
+					amount,
+					discountedAmount,
+					dueDate,
+					paymentReference: this.generatePaymentReference(),
+					status: FineStatus.pending
+				}
+			})
+
+			// await this.eskizService.sendSms(
+			// 	dto.phone,
+			// 	`Вам выписан штраф на сумму ${amount} сум. Если оплатите до ${dueDate.toLocaleDateString()}, сумма составит ${discountedAmount} сум. Оплата по счету: ${fine.paymentReference}.`
+			// )
+
+			return {
+				message: 'Штраф создан. Выберите способ оплаты.',
+				fineId: fine.id
 			}
+		} catch (error) {
+			console.error('❌ Ошибка при создании штрафа и транзакции:', error)
+			throw new BadRequestException('Не удалось создать штраф и транзакцию')
+		}
+	}
+
+	async processPayment(fineId: string, method: 'payme' | 'paynet' | 'uzum') {
+		const fine = await this.prisma.fine.findUnique({
+			where: { id: fineId }
 		})
 
-		await this.eskizService.sendSms(
-			dto.phone,
-			`Вам выписан штраф на сумму ${amount} сум. Если оплатите до ${dueDate.toLocaleDateString()}, сумма составит ${discountedAmount} сум. Оплата по счету: ${fine.paymentReference}.`
-		)
-
-		const receiptRes = await this.paymeService.createReceipt(
-			fine.id,
-			fine.amount,
-			'Оплата штрафа'
-		)
-
-		console.log('🔹 Ответ от Payme API:', JSON.stringify(receiptRes, null, 2))
-
-		if (!receiptRes?.result?.receipt) {
-			throw new Error('Ошибка: Payme не вернул чек (receipt)')
+		if (!fine) {
+			throw new NotFoundException('Штраф не найден')
 		}
 
-		await this.prisma.payment.create({
-			data: {
-				fineId: fine.id,
-				method: 'payme',
-				status: 'pending',
-				transactionId: receiptRes.result.receipt._id
+		if (method === 'payme') {
+			await this.paymeService.checkPerformTransaction(
+				{ account: { order_id: fineId }, amount: fine.amount },
+				Date.now()
+			)
+
+			const receiptRes = await this.paymeService.createReceipt(
+				fine.id,
+				fine.amount,
+				'Оплата штрафа'
+			)
+
+			if (!receiptRes?.result?.receipt?._id) {
+				throw new Error('Ошибка: Payme не вернул чек (receipt)')
 			}
-		})
 
-		const receiptResponse = await this.paymeService.sendReceipt(
-			receiptRes.result.receipt._id,
-			fine.phone,
-			`Вам выставлен штраф на сумму ${fine.amount} сум.`
-		)
+			const transactionId = receiptRes.result.receipt._id
 
-		console.log('✅ Чек отправлен в Payme:', receiptResponse)
+			// ✅ Отправляем чек клиенту
+			const receiptResponse = await this.paymeService.sendReceipt(
+				transactionId,
+				fine.phone,
+				`Вам выставлен штраф на сумму ${fine.amount} сум.`
+			)
 
-		this.logger.log(
-			`Инспектор ${inspectorId} выписал штраф ${fine.name} на сумму ${fine.amount} сум.`
-		)
-
-		return fine
+			console.log('✅ Чек отправлен в Payme:', receiptResponse)
+			return {
+				success: true,
+				transactionId
+			}
+		}
 	}
 
 	async updateFine(fineId: string, dto: UpdateFineDto) {

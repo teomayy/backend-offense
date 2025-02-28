@@ -1,11 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import axios from 'axios'
-import {
-	PaymeError,
-	PaymeMethod,
-	TransactionState
-} from 'src/constants/payme.constants'
+import { PaymeError, TransactionState } from 'src/constants/payme.constants'
 import { PrismaService } from 'src/prisma.service'
 
 @Injectable()
@@ -121,174 +117,244 @@ export class PaymeService {
 	}
 
 	/**
-	 * 📌 Выполнение платежа (изменение статуса + отправка чека)
+	 * 📌 Проверка возможности выполнения транзакции
 	 */
-	async performTransaction(params: any) {
-		console.log('🔹 PerformTransaction вызван:', params)
+	async checkPerformTransaction(params: any, id: number) {
+		const { account, amount } = params
 
-		const transaction = await this.prisma.payment.findUnique({
-			where: { transactionId: params.id },
-			include: { fine: true }
+		const fine = await this.prisma.fine.findUnique({
+			where: { id: account.order_id }
 		})
 
-		if (!transaction || transaction.status !== 'pending') {
-			throw new HttpException(
-				PaymeError.TransactionNotFound,
-				HttpStatus.BAD_REQUEST
-			)
-		}
-
-		// Обновляем статус платежа и штрафа
-		await this.prisma.payment.update({
-			where: { id: transaction.id },
-			data: { status: 'success' }
-		})
-
-		await this.prisma.fine.update({
-			where: { id: transaction.fine.id },
-			data: { status: 'paid' }
-		})
-		// Отправка чека
-		const receiptResponse = await this.sendReceipt(
-			transaction.fine.id,
-			transaction.fine.phone,
-			'Оплата штрафа'
-		)
-
-		return {
-			result: {
-				transaction: transaction.id,
-				perform_time: Date.now(),
-				state: TransactionState.Paid,
-				receipt: receiptResponse
-			}
-		}
-	}
-
-	/**
-	 * 📌 Валидация запроса по `X-Auth`
-	 */
-	validateAuth(authHeader: string): boolean {
-		if (!authHeader) return false
-		console.log('🔹 Заголовок Authorization:', authHeader)
-
-		const authString =
-			`Basic ` +
-			Buffer.from(authHeader.split(' ')[1] || '', 'base64').toString()
-
-		console.log('🔹 Декодированный заголовок:', authString)
-		console.log('🔹 Ожидаем:', `${this.PAYME_MERCHANT_ID}:${this.PAYME_KEY}`)
-
-		return authString === `${this.PAYME_MERCHANT_ID}:${this.PAYME_KEY}`
-	}
-
-	/**
-	 * 📌 Обработка входящих запросов от Payme
-	 */
-	async handleWebhook(body: any) {
-		const { method, params } = body
-
-		switch (method) {
-			case PaymeMethod.CheckPerformTransaction:
-				return this.checkPerformTransaction(params)
-			case PaymeMethod.CreateTransaction:
-				return this.createTransaction(params)
-			case PaymeMethod.PerformTransaction:
-				return this.performTransaction(params)
-			case PaymeMethod.CancelTransaction:
-				return this.cancelTransaction(params)
-			case PaymeMethod.CheckTransaction:
-				return this.checkTransaction(params)
-			default:
-				throw new HttpException(
-					{ code: -32601, message: { ru: 'Метод не поддерживается' } },
-					HttpStatus.BAD_REQUEST
-				)
-		}
-	}
-
-	/**
-	 * 📌 Проверка, можно ли выполнить платёж (есть ли такой заказ)
-	 */
-	async checkPerformTransaction(params: any) {
-		console.log('🔹 CheckPerformTransaction вызван:', params)
-
-		const orderId = params.account?.order_id
-
-		if (!orderId) {
-			throw new HttpException(PaymeError.ProductNotFound, HttpStatus.NOT_FOUND)
-		}
-
-		const fine = await this.findOrderById(orderId)
 		if (!fine) {
 			throw new HttpException(PaymeError.ProductNotFound, HttpStatus.NOT_FOUND)
 		}
 
-		if (fine.status !== 'pending') {
-			throw new HttpException(
-				PaymeError.CantDoOperation,
-				HttpStatus.BAD_REQUEST
-			)
-		}
-
-		if (fine.amount !== params.amount) {
+		if (fine.amount !== amount) {
 			throw new HttpException(PaymeError.InvalidAmount, HttpStatus.BAD_REQUEST)
 		}
 
-		return { result: { allow: true } }
+		return { jsonrpc: '2.0', result: { allow: true }, id }
+	}
+
+	/**
+	 * 📌 Проверка состояния транзакции
+	 */
+	async checkTransaction(params: any) {
+		console.log('🔹 CheckTransaction вызван:', params)
+
+		// Проверяем, существует ли транзакция
+		const transaction = await this.findTransactionById(params.id)
+
+		if (!transaction.transactionId) {
+			return {
+				jsonrpc: '2.0',
+				error: {
+					code: -31003,
+					message: {
+						uz: 'Tranzaktsiya topilmadi',
+						ru: 'Транзакция не найдена',
+						en: 'Transaction not found'
+					}
+				},
+				id: params.id
+			}
+		}
+
+		// Формируем корректный ответ
+		return {
+			jsonrpc: '2.0',
+			id: params.id,
+			result: {
+				create_time: transaction.createdAt,
+				perform_time: transaction.performTime,
+				cancel_time: transaction.cancelTime,
+				transaction: transaction.transactionId,
+				state: transaction.status === 'success' ? 2 : 1, // 2 - оплачено, 1 - ожидает
+				reason: transaction.reason
+			}
+		}
 	}
 
 	/**
 	 * 📌 Создание транзакции
 	 */
-	async createTransaction(params: any) {
+	async createTransaction(params: any, requestId: number) {
 		console.log('🔹 CreateTransaction вызван:', params)
 
-		const orderId = params.account?.order_id
-		if (!orderId) {
-			throw new HttpException(
-				PaymeError.ProductNotFound,
-				HttpStatus.BAD_REQUEST
-			)
+		const { id: transactionId, time: createTime, amount, account } = params
+
+		console.log('transactionIDDD', transactionId)
+
+		if (!account || !account.order_id) {
+			return {
+				jsonrpc: '2.0',
+				id: requestId, // ✅ Возвращаем ID запроса
+				error: {
+					code: -31050,
+					message: {
+						uz: 'Buyurtma identifikatori topilmadi',
+						ru: 'Идентификатор заказа не найден',
+						en: 'Order ID not found'
+					}
+				}
+			}
 		}
 
-		const fine = await this.findOrderById(orderId)
+		const orderId = account.order_id
+
+		// 🔎 Проверяем, существует ли штраф (счет плательщика)
+		const fine = await this.prisma.fine.findUnique({
+			where: { id: orderId }
+		})
+
 		if (!fine) {
-			throw new HttpException(PaymeError.ProductNotFound, HttpStatus.NOT_FOUND)
+			return {
+				jsonrpc: '2.0',
+				id: requestId, // ✅ Возвращаем ID запроса
+				error: {
+					code: -31050,
+					message: {
+						uz: 'Buyurtma topilmadi',
+						ru: 'Заказ не найден',
+						en: 'Order not found'
+					}
+				}
+			}
 		}
 
-		if (fine.status !== 'pending') {
-			throw new HttpException(
-				PaymeError.CantDoOperation,
-				HttpStatus.BAD_REQUEST
-			)
+		// 💰 Проверяем, совпадает ли сумма платежа
+		if (fine.amount !== amount) {
+			return {
+				jsonrpc: '2.0',
+				id: requestId, // ✅ Возвращаем ID запроса
+				error: {
+					code: -31001,
+					message: {
+						uz: 'To‘lov summasi noto‘g‘ri',
+						ru: 'Неверная сумма платежа',
+						en: 'Invalid payment amount'
+					}
+				}
+			}
 		}
 
-		const transaction = await this.prisma.payment.create({
+		const validCreateTime = Number.isInteger(createTime)
+			? new Date(createTime)
+			: new Date()
+
+		// Проверяем, является ли `validCreateTime` корректной датой
+		if (isNaN(validCreateTime.getTime())) {
+			return {
+				jsonrpc: '2.0',
+				id: requestId,
+				error: {
+					code: -31008,
+					message: {
+						uz: 'Noto‘g‘ri tranzaksiya vaqti',
+						ru: 'Неверное время транзакции',
+						en: 'Invalid transaction time'
+					}
+				}
+			}
+		}
+
+		// 🔎 Проверяем, есть ли уже активная транзакция для этого заказа
+		const existingTransaction = await this.prisma.payment.findFirst({
+			where: { fineId: orderId }
+		})
+
+		if (existingTransaction) {
+			if (existingTransaction.transactionId === transactionId) {
+				// ✅ Возвращаем существующую транзакцию
+				return {
+					jsonrpc: '2.0',
+					id: requestId, // ✅ Возвращаем ID запроса
+					result: {
+						transaction: existingTransaction.transactionId,
+						create_time: existingTransaction.createdAt.getTime(),
+						state: TransactionState.Pending // Ожидание оплаты
+					}
+				}
+			}
+
+			// ❌ Ошибка: повторная транзакция с другим ID
+			return {
+				jsonrpc: '2.0',
+				id: requestId, // ✅ Возвращаем ID запроса
+				error: {
+					code: -31050,
+					message: {
+						uz: 'Tranzaksiya allaqachon mavjud, boshqa ID bilan qaytadan yaratib bo‘lmaydi',
+						ru: 'Транзакция уже существует, повторное создание с другим ID невозможно',
+						en: 'Transaction already exists, cannot recreate with a different ID'
+					}
+				}
+			}
+		}
+
+		// ✅ Создаем новую транзакцию
+		const newTransaction = await this.prisma.payment.create({
 			data: {
 				fineId: orderId,
 				method: 'payme',
 				status: 'pending',
-				transactionId: params.id
+				createdAt: validCreateTime,
+				amount: fine.amount,
+				transactionId
 			}
 		})
+
+		console.log(
+			`✅ Транзакция ${newTransaction.transactionId} успешно создана!`
+		)
+
+		// 🔄 Запускаем таймер отмены по таймауту (12 часов = 43 200 000 мс)
+		setTimeout(async () => {
+			const transaction = await this.prisma.payment.findUnique({
+				where: { transactionId }
+			})
+
+			if (transaction && transaction.status === 'pending') {
+				await this.prisma.payment.update({
+					where: { transactionId },
+					data: {
+						status: 'failed',
+						cancelTime: new Date(),
+						reason: '4' // Отмена по таймауту
+					}
+				})
+
+				await this.prisma.fine.update({
+					where: { id: orderId },
+					data: { status: 'pending' } // Возвращаем статус "ожидание оплаты"
+				})
+
+				console.log(`❌ Транзакция ${transactionId} отменена по таймауту.`)
+			}
+		}, 43200000) // 12 часов
+
+		// ✅ Возвращаем успешный ответ
 		return {
+			jsonrpc: '2.0',
+			id: requestId, // ✅ Возвращаем ID запроса
 			result: {
-				transaction: transaction.transactionId,
-				create_time: Date.now(),
-				state: TransactionState.Pending // В ожидании
+				transaction: newTransaction.transactionId,
+				create_time: newTransaction.createdAt.getTime(),
+				state: TransactionState.Pending // Ожидание оплаты
 			}
 		}
 	}
 
 	/**
-	 * 📌 Проверка существования транзакции
+	 * 📌 Выполнение платежа
 	 */
-	async checkTransaction(params: any) {
-		console.log('🔹 CheckTransaction:', params)
-		// Здесь проверяем, существует ли транзакция
+	async performTransaction(params: any, id: number) {
+		console.log('🔹 PerformTransaction вызван:', params)
+
 		const transaction = await this.prisma.payment.findUnique({
-			where: { transactionId: params.id }
+			where: { transactionId: params.id },
+			include: { fine: true }
 		})
 
 		if (!transaction) {
@@ -298,14 +364,45 @@ export class PaymeService {
 			)
 		}
 
+		if (transaction.status !== 'pending') {
+			if (transaction.status === 'success') {
+				return {
+					jsonrpc: '2.0',
+					id: params.id,
+					result: {
+						perform_time: transaction.performTime
+							? transaction.performTime.getTime()
+							: 0,
+						transaction: transaction.transactionId,
+						state: TransactionState.Paid
+					}
+				}
+			}
+			throw new HttpException(
+				PaymeError.CantDoOperation,
+				HttpStatus.BAD_REQUEST
+			)
+		}
+
+		const performTime = new Date()
+
+		await this.prisma.payment.update({
+			where: { transactionId: params.id },
+			data: { status: 'success', performTime } // ✅ Записываем `performTime`
+		})
+
+		await this.prisma.fine.update({
+			where: { id: transaction.fine.id },
+			data: { status: 'paid' }
+		})
+
 		return {
+			jsonrpc: '2.0',
+			id: params.id,
 			result: {
-				create_time: transaction.createdAt.getTime(),
+				perform_time: performTime.getTime(),
 				transaction: transaction.transactionId,
-				state:
-					transaction.status === 'success'
-						? TransactionState.Paid
-						: TransactionState.Pending
+				state: TransactionState.Paid
 			}
 		}
 	}
@@ -313,7 +410,7 @@ export class PaymeService {
 	/**
 	 * 📌 Отмена транзакции
 	 */
-	async cancelTransaction(params: any) {
+	async cancelTransaction(params: any, id: number) {
 		console.log('🔹 CancelTransaction вызван:', params)
 
 		const transaction = await this.prisma.payment.findUnique({
@@ -328,31 +425,94 @@ export class PaymeService {
 			)
 		}
 
+		const cancelTime = new Date()
+
 		await this.prisma.payment.update({
-			where: { id: transaction.id },
-			data: { status: 'failed' }
+			where: { transactionId: params.id },
+			data: {
+				status: 'failed',
+				cancelTime, // ✅ Записываем `cancelTime`
+				reason: params.reason ? String(params.reason) : null // ✅ Записываем `reason`
+			}
 		})
 
 		await this.prisma.fine.update({
 			where: { id: transaction.fine.id },
-			data: { status: 'pending' } // Возвращаем штраф в статус ожидания
+			data: { status: 'deleted' }
 		})
 
 		return {
+			jsonrpc: '2.0',
+			id: params.id,
 			result: {
-				transaction: transaction.id,
-				cancel_time: Date.now(),
-				state: TransactionState.PendingCanceled
+				transaction: transaction.transactionId,
+				cancel_time: cancelTime.getTime(),
+				state: TransactionState.PendingCanceled,
+				reason: params.reason ? String(params.reason) : null
 			}
 		}
 	}
 
 	/**
-	 * 📌 Метод-заглушка: поиск заказа по ID
+	 * 📌 Получение списка транзакций
 	 */
-	async findOrderById(id: string) {
+	/**
+	 * 📌 Получение выписки по транзакциям за указанный период
+	 */
+	async getStatement(params: { from: number; to: number }) {
+		console.log('🔹 getStatement вызван:', params)
+
+		const { from, to } = params
+
+		// Преобразуем timestamps в Date
+		const fromDate = new Date(from)
+		const toDate = new Date(to)
+
+		// Запрашиваем транзакции за период
+		const transactions = await this.prisma.payment.findMany({
+			where: {
+				createdAt: {
+					gte: fromDate,
+					lte: toDate
+				}
+			},
+			include: {
+				fine: true // Подгружаем информацию о штрафе
+			}
+		})
+
+		// Преобразуем данные в нужный формат
+		return {
+			jsonrpc: '2.0',
+			result: transactions.map(transaction => ({
+				id: transaction.transactionId,
+				time: transaction.createdAt.getTime(),
+				amount: transaction.amount,
+				account: {
+					order_id: transaction.fineId // ID заказа
+				},
+				create_time: transaction.createdAt.getTime(),
+				perform_time: transaction.performTime
+					? transaction.performTime.getTime()
+					: 0,
+				cancel_time: transaction.cancelTime
+					? transaction.cancelTime.getTime()
+					: 0,
+				transaction: transaction.transactionId,
+				state: transaction.status,
+				reason: transaction.reason || null
+			}))
+		}
+	}
+
+	/**
+	 * 📌 Поиск заказа (штрафа) по `order_id`
+	 */
+	async findOrderById(orderId: string) {
+		console.log('🔹 findOrderById вызван:', orderId)
+
 		const fine = await this.prisma.fine.findUnique({
-			where: { id: id }
+			where: { id: orderId }
 		})
 
 		if (!fine) return null
@@ -364,18 +524,39 @@ export class PaymeService {
 		}
 	}
 
-	/**
-	 * 📌 Метод-заглушка: поиск транзакции по ID
-	 */
-	async findTransactionById(id: string) {
+	async findTransactionById(transactionId: string) {
+		console.log(`🔹 Поиск транзакции по ID: ${transactionId}`)
+
+		const transaction = await this.prisma.payment.findUnique({
+			where: { transactionId }
+		})
+
+		if (!transaction) {
+			console.log(`❌ Транзакция с ID ${transactionId} не найдена`)
+			return null
+		}
+
+		console.log(`✅ Найдена транзакция:`, transaction)
+
+		const state =
+			transaction.status === 'success'
+				? 2
+				: transaction.status === 'failed'
+					? -1
+					: 1
+
 		return {
-			id,
-			createTime: Date.now(),
-			status: 1, // 1 - в ожидании, 2 - выполнена, -1 - отменена
-			amount: 100000,
-			save: async function () {
-				console.log(`Transaction ${this.id} updated!`)
-			}
+			id: transaction.id,
+			transactionId: transaction.transactionId,
+			fineId: transaction.fineId,
+			status: transaction.status,
+			createdAt: transaction.createdAt.getTime(), // Timestamp в миллисекундах
+			performTime: transaction.performTime
+				? transaction.performTime.getTime()
+				: 0,
+			cancelTime: transaction.cancelTime ? transaction.cancelTime.getTime() : 0,
+			reason: transaction.reason || null,
+			state
 		}
 	}
 }
