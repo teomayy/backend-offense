@@ -71,7 +71,7 @@ export class FineService {
 					amount,
 					discountedAmount,
 					dueDate,
-					paymentReference: this.generatePaymentReference(),
+					paymentReference: `F-${this.generatePaymentReference()}`,
 					status: FineStatus.pending
 				}
 			})
