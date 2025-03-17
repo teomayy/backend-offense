@@ -596,10 +596,10 @@ export class PaymeService {
 		})
 
 		// Если транзакция была завершена (state = -2), обновляем статус заказа
-		if (newState === -2) {
+		if (newState === -2 || -1) {
 			await this.prisma.fine.update({
 				where: { id: transaction.fineId },
-				data: { status: 'pending' }
+				data: { status: 'deleted' }
 			})
 		}
 
