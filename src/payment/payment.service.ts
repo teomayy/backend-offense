@@ -122,33 +122,109 @@ export class PaymeService {
 	async checkPerformTransaction(params: any, id: number) {
 		const { account, amount } = params
 
-		const fine = await this.prisma.fine.findUnique({
-			where: { id: account.order_id }
-		})
+		try {
+			if (!account || !account.order_id) {
+				return {
+					jsonrpc: '2.0',
+					error: {
+						code: -31050,
+						message: {
+							uz: 'Buyurtma identifikatori topilmadi',
+							ru: 'Идентификатор заказа не найден',
+							en: 'Order ID not found'
+						}
+					},
+					id
+				}
+			}
 
-		if (!fine) {
-			throw new HttpException(PaymeError.ProductNotFound, HttpStatus.NOT_FOUND)
+			const fine = await this.prisma.fine.findUnique({
+				where: { id: account.order_id }
+			})
+
+			console.log('FINE', fine)
+
+			// ❌ Если штраф не найден
+			if (!fine) {
+				return {
+					jsonrpc: '2.0',
+					id: null,
+					error: PaymeError.ProductNotFound
+				}
+			}
+
+			const issuedAt = new Date(fine.issuedAt)
+			const dueDate = new Date(issuedAt)
+			dueDate.setDate(dueDate.getDate() + 15)
+
+			const now = new Date()
+			const isDiscountAvailable = now <= dueDate
+
+			const payableAmount = isDiscountAvailable
+				? fine.discountedAmount || fine.amount
+				: fine.amount
+
+			if (!payableAmount) {
+				return {
+					jsonrpc: '2.0',
+					id: null,
+					error: {
+						code: -31001,
+						message: {
+							uz: "To'lov summasi aniqlanmadi",
+							ru: 'Сумма для оплаты не определена',
+							en: 'Payment amount not determined'
+						}
+					}
+				}
+			}
+
+			if (amount !== payableAmount) {
+				return {
+					jsonrpc: '2.0',
+					id: null,
+					error: PaymeError.InvalidAmount
+				}
+			}
+
+			return { jsonrpc: '2.0', result: { allow: true }, id }
+		} catch (error) {
+			console.error('Ошибка в checkPerformTransaction:', error)
+
+			// ❌ Возвращаем JSON-RPC ошибку сервера
+			return {
+				jsonrpc: '2.0',
+				id: null,
+				error: {
+					code: -31008, // Код ошибки сервера
+					message: {
+						uz: 'Ichki server xatosi',
+						ru: 'Внутренняя ошибка сервера',
+						en: 'Internal server error'
+					}
+				}
+			}
 		}
-
-		if (fine.amount !== amount) {
-			throw new HttpException(PaymeError.InvalidAmount, HttpStatus.BAD_REQUEST)
-		}
-
-		return { jsonrpc: '2.0', result: { allow: true }, id }
 	}
 
 	/**
 	 * 📌 Проверка состояния транзакции
 	 */
-	async checkTransaction(params: any) {
+	async checkTransaction(params: any, requestId: number) {
 		console.log('🔹 CheckTransaction вызван:', params)
 
 		// Проверяем, существует ли транзакция
-		const transaction = await this.findTransactionById(params.id)
+		// 🔍 Ищем транзакцию в базе
+		const { id: transactionId } = params
 
-		if (!transaction.transactionId) {
+		const transaction = await this.prisma.payment.findUnique({
+			where: { transactionId }
+		})
+
+		if (!transaction) {
 			return {
 				jsonrpc: '2.0',
+				id: requestId,
 				error: {
 					code: -31003,
 					message: {
@@ -156,22 +232,49 @@ export class PaymeService {
 						ru: 'Транзакция не найдена',
 						en: 'Transaction not found'
 					}
-				},
-				id: params.id
+				}
 			}
 		}
 
+		const cancelTime = transaction.cancelTime
+			? transaction.cancelTime.getTime()
+			: 0
+
+		let state = 1
+		if (transaction.status === 'success') state = 2
+		if (transaction.status === 'canceled') state = transaction.state
+
 		// Формируем корректный ответ
+		if (state === 1) {
+			return {
+				jsonrpc: '2.0',
+				id: requestId,
+				result: {
+					create_time: transaction.createdAt.getTime(),
+					perform_time: transaction.performTime
+						? transaction.performTime.getTime()
+						: 0,
+					cancel_time: 0, // ✅ Исправлено! API ожидает `0`
+					transaction: transaction.transactionId,
+					state: state, // ✅ Должно быть `1`
+					reason: null // ✅ Исправлено! Должно быть `null`
+				}
+			}
+		}
+
+		// ✅ Если транзакция отменена, возвращаем `cancel_time` и `reason`
 		return {
 			jsonrpc: '2.0',
-			id: params.id,
+			id: requestId,
 			result: {
-				create_time: transaction.createdAt,
-				perform_time: transaction.performTime,
-				cancel_time: transaction.cancelTime,
+				create_time: transaction.createdAt.getTime(),
+				perform_time: transaction.performTime
+					? transaction.performTime.getTime()
+					: 0,
+				cancel_time: cancelTime, // ✅ Теперь `0`, если транзакция не отменена
 				transaction: transaction.transactionId,
-				state: transaction.status === 'success' ? 2 : 1, // 2 - оплачено, 1 - ожидает
-				reason: transaction.reason
+				state: state,
+				reason: transaction.reason || null // ✅ Теперь `null`, если нет причины
 			}
 		}
 	}
@@ -223,8 +326,21 @@ export class PaymeService {
 			}
 		}
 
+		// 📅 Рассчитываем, действует ли скидка
+		const issuedAt = new Date(fine.issuedAt)
+		const dueDate = new Date(issuedAt)
+		dueDate.setDate(dueDate.getDate() + 15) // 15 дней с даты выдачи
+
+		const now = new Date()
+		const isDiscountAvailable = now <= dueDate
+
+		// 💰 Определяем сумму оплаты с учетом скидки
+		const payableAmount = isDiscountAvailable
+			? fine.discountedAmount || fine.amount
+			: fine.amount
+
 		// 💰 Проверяем, совпадает ли сумма платежа
-		if (fine.amount !== amount) {
+		if (payableAmount !== amount) {
 			return {
 				jsonrpc: '2.0',
 				id: requestId, // ✅ Возвращаем ID запроса
@@ -300,7 +416,8 @@ export class PaymeService {
 				method: 'payme',
 				status: 'pending',
 				createdAt: validCreateTime,
-				amount: fine.amount,
+				state: TransactionState.Pending,
+				amount: payableAmount,
 				transactionId
 			}
 		})
@@ -319,9 +436,9 @@ export class PaymeService {
 				await this.prisma.payment.update({
 					where: { transactionId },
 					data: {
-						status: 'failed',
+						status: 'canceled',
 						cancelTime: new Date(),
-						reason: '4' // Отмена по таймауту
+						reason: 4 // Отмена по таймауту
 					}
 				})
 
@@ -349,7 +466,7 @@ export class PaymeService {
 	/**
 	 * 📌 Выполнение платежа
 	 */
-	async performTransaction(params: any, id: number) {
+	async performTransaction(params: any) {
 		console.log('🔹 PerformTransaction вызван:', params)
 
 		const transaction = await this.prisma.payment.findUnique({
@@ -358,10 +475,11 @@ export class PaymeService {
 		})
 
 		if (!transaction) {
-			throw new HttpException(
-				PaymeError.TransactionNotFound,
-				HttpStatus.NOT_FOUND
-			)
+			return {
+				jsonrpc: '2.0',
+				id: null,
+				error: PaymeError.TransactionNotFound
+			}
 		}
 
 		if (transaction.status !== 'pending') {
@@ -378,22 +496,22 @@ export class PaymeService {
 					}
 				}
 			}
-			throw new HttpException(
-				PaymeError.CantDoOperation,
-				HttpStatus.BAD_REQUEST
-			)
+			return {
+				jsonrpc: '2.0',
+				id: null,
+				error: PaymeError.CantDoOperation
+			}
 		}
 
 		const performTime = new Date()
 
 		await this.prisma.payment.update({
 			where: { transactionId: params.id },
-			data: { status: 'success', performTime } // ✅ Записываем `performTime`
-		})
-
-		await this.prisma.fine.update({
-			where: { id: transaction.fine.id },
-			data: { status: 'paid' }
+			data: {
+				status: 'success',
+				state: TransactionState.Paid,
+				performTime: new Date()
+			}
 		})
 
 		return {
@@ -410,56 +528,97 @@ export class PaymeService {
 	/**
 	 * 📌 Отмена транзакции
 	 */
-	async cancelTransaction(params: any, id: number) {
+	async cancelTransaction(params: any, requestId: number) {
 		console.log('🔹 CancelTransaction вызван:', params)
 
+		const { id: transactionId, reason } = params
+
+		// Поиск транзакции в базе
 		const transaction = await this.prisma.payment.findUnique({
-			where: { transactionId: params.id },
+			where: { transactionId },
 			include: { fine: true }
 		})
 
 		if (!transaction) {
-			throw new HttpException(
-				PaymeError.TransactionNotFound,
-				HttpStatus.NOT_FOUND
-			)
+			return {
+				jsonrpc: '2.0',
+				id: requestId,
+				error: {
+					code: -31003,
+					message: {
+						uz: 'Tranzaksiya topilmadi',
+						ru: 'Транзакция не найдена',
+						en: 'Transaction not found'
+					}
+				}
+			}
 		}
 
-		const cancelTime = new Date()
+		// const currentTime = Date.now()
 
+		// Если транзакция уже отменена, возвращаем её текущий статус без изменений
+		if (transaction.state === -1 || transaction.state === -2) {
+			return {
+				jsonrpc: '2.0',
+				id: requestId,
+				result: {
+					transaction: transactionId,
+					cancel_time: transaction.cancelTime
+						? transaction.cancelTime.getTime()
+						: 0, // ✅ Всегда возвращаем timestamp
+					state: transaction.state,
+					reason: transaction.reason || null
+				}
+			}
+		}
+
+		// Определяем новый статус транзакции
+		let newState = -1 // По умолчанию -1 (отмена)
+
+		if (transaction.state === 2) {
+			newState = -2 // Если транзакция завершена, устанавливаем -2
+		}
+
+		// Если транзакция ещё не отменена, устанавливаем `cancel_time`
+		const cancelTime = transaction.cancelTime
+			? transaction.cancelTime
+			: new Date()
+
+		// Обновляем статус транзакции в базе
 		await this.prisma.payment.update({
-			where: { transactionId: params.id },
+			where: { transactionId },
 			data: {
-				status: 'failed',
-				cancelTime, // ✅ Записываем `cancelTime`
-				reason: params.reason ? String(params.reason) : null // ✅ Записываем `reason`
+				status: 'canceled',
+				cancelTime: cancelTime, // ✅ Гарантируем сохранение времени отмены
+				state: newState,
+				reason
 			}
 		})
 
-		await this.prisma.fine.update({
-			where: { id: transaction.fine.id },
-			data: { status: 'deleted' }
-		})
+		// Если транзакция была завершена (state = -2), обновляем статус заказа
+		if (newState === -2) {
+			await this.prisma.fine.update({
+				where: { id: transaction.fineId },
+				data: { status: 'pending' }
+			})
+		}
 
+		// Возвращаем корректный JSON-RPC ответ
 		return {
 			jsonrpc: '2.0',
-			id: params.id,
+			id: requestId,
 			result: {
-				transaction: transaction.transactionId,
-				cancel_time: cancelTime.getTime(),
-				state: TransactionState.PendingCanceled,
-				reason: params.reason ? String(params.reason) : null
+				transaction: transactionId,
+				cancel_time: cancelTime.getTime(), // ✅ Теперь это всегда timestamp
+				state: newState,
+				reason
 			}
 		}
 	}
 
-	/**
-	 * 📌 Получение списка транзакций
+	/* 📌 Получение выписки по транзакциям за указанный период
 	 */
-	/**
-	 * 📌 Получение выписки по транзакциям за указанный период
-	 */
-	async getStatement(params: { from: number; to: number }) {
+	async getStatement(params: { from: number; to: number }, requestId: number) {
 		console.log('🔹 getStatement вызван:', params)
 
 		const { from, to } = params
@@ -484,24 +643,24 @@ export class PaymeService {
 		// Преобразуем данные в нужный формат
 		return {
 			jsonrpc: '2.0',
-			result: transactions.map(transaction => ({
-				id: transaction.transactionId,
-				time: transaction.createdAt.getTime(),
-				amount: transaction.amount,
-				account: {
-					order_id: transaction.fineId // ID заказа
-				},
-				create_time: transaction.createdAt.getTime(),
-				perform_time: transaction.performTime
-					? transaction.performTime.getTime()
-					: 0,
-				cancel_time: transaction.cancelTime
-					? transaction.cancelTime.getTime()
-					: 0,
-				transaction: transaction.transactionId,
-				state: transaction.status,
-				reason: transaction.reason || null
-			}))
+			id: requestId,
+			result: {
+				transactions: transactions.map(transaction => ({
+					id: transaction.transactionId,
+					amount: transaction.amount,
+					create_time: transaction.createdAt.getTime(),
+					perform_time: transaction.performTime
+						? transaction.performTime.getTime()
+						: 0,
+					cancel_time: transaction.cancelTime
+						? transaction.cancelTime.getTime()
+						: 0,
+					transaction: transaction.transactionId,
+					state: transaction.state, // Используем поле state
+					reason: transaction.reason || null
+					// receivers: null // Добавляем поле receivers, если нужно
+				}))
+			}
 		}
 	}
 
@@ -541,7 +700,7 @@ export class PaymeService {
 		const state =
 			transaction.status === 'success'
 				? 2
-				: transaction.status === 'failed'
+				: transaction.status === 'canceled'
 					? -1
 					: 1
 

@@ -100,15 +100,24 @@ export class FineService {
 			throw new NotFoundException('Штраф не найден')
 		}
 
+		const currentDate = new Date()
+		const dueDate = new Date(fine.dueDate)
+
+		// 🏷 Если оплата в течение 15 дней — применяется скидка
+		const payableAmount =
+			currentDate <= dueDate && fine.discountedAmount
+				? fine.discountedAmount
+				: fine.amount
+
 		if (method === 'payme') {
 			await this.paymeService.checkPerformTransaction(
-				{ account: { order_id: fineId }, amount: fine.amount },
+				{ account: { order_id: fineId }, amount: payableAmount },
 				Date.now()
 			)
 
 			const receiptRes = await this.paymeService.createReceipt(
 				fine.id,
-				fine.amount,
+				payableAmount,
 				'Оплата штрафа'
 			)
 
@@ -122,13 +131,14 @@ export class FineService {
 			const receiptResponse = await this.paymeService.sendReceipt(
 				transactionId,
 				fine.phone,
-				`Вам выставлен штраф на сумму ${fine.amount} сум.`
+				`Вам выставлен штраф на сумму ${payableAmount} сум.`
 			)
 
 			console.log('✅ Чек отправлен в Payme:', receiptResponse)
 			return {
 				success: true,
-				transactionId
+				transactionId,
+				paidAmount: payableAmount
 			}
 		}
 	}

@@ -5,11 +5,14 @@ import {
 	HttpCode,
 	Next,
 	Post,
-	Res
+	Req,
+	Res,
+	UseGuards
 } from '@nestjs/common'
 import { NextFunction, Response } from 'express'
 import { PaymeMethod } from 'src/constants/payme.constants'
 import { FineService } from 'src/fine/fine.service'
+import { PaymeAuthGuard } from './guards/payme-auth.guard'
 import { PaymeService } from './payment.service'
 
 @Controller('payme')
@@ -17,30 +20,49 @@ export class PaymentController {
 	constructor(
 		private readonly paymeService: PaymeService,
 		private readonly fineService: FineService
+		// private readonly configService: ConfigService
 	) {}
 
 	@Post('webhook')
+	@UseGuards(PaymeAuthGuard)
 	@HttpCode(200)
 	async payme(
 		@Body() body: any,
 		@Res() res: Response,
+		@Req() req: Request,
 		@Next() next: NextFunction
 	) {
 		try {
+			// // Check auth
+			// console.log('REQ', req.headers)
+			// const authHeader = req.headers['authorization']
+			// const logg = authHeader.toString('base64')
+			// console.log('LOFF', logg)
+
+			// const expectedAuth = `Basic ${Buffer.from(
+			// 	`Paycom:${this.configService.get('PAYME_SECRET_KEY_TEST')}`
+			// ).toString('base64')}`
+
+			// console.log('AUTH', expectedAuth)
+
+			// if (!authHeader || authHeader !== expectedAuth) {
+			// 	return res.json({
+			// 		jsonrpc: '2.0',
+			// 		error: { code: -32504, message: 'Неверная авторизация' },
+			// 		id: null
+			// 	})
+			// }
+
 			const { method, params, id } = body
 
 			let result
 			switch (method) {
 				case PaymeMethod.CheckPerformTransaction:
-					await this.paymeService.checkPerformTransaction(params, id)
-					return res.json({
-						jsonrpc: '2.0',
-						result: { allow: true },
-						id
-					})
+					result = await this.paymeService.checkPerformTransaction(params, id)
+					break
 
 				case PaymeMethod.CheckTransaction:
-					result = await this.paymeService.checkTransaction(params)
+					result = await this.paymeService.checkTransaction(params, id)
 					break
 
 				case PaymeMethod.CreateTransaction:
@@ -48,7 +70,7 @@ export class PaymentController {
 					break
 
 				case PaymeMethod.PerformTransaction:
-					result = await this.paymeService.performTransaction(params, id)
+					result = await this.paymeService.performTransaction(params)
 					break
 
 				case PaymeMethod.CancelTransaction:
@@ -56,8 +78,7 @@ export class PaymentController {
 					break
 
 				case PaymeMethod.GetStatement:
-					result = await this.paymeService.getStatement(params)
-					result = { transactions: result }
+					result = await this.paymeService.getStatement(params, id)
 					break
 
 				default:

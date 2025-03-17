@@ -23,14 +23,13 @@ export class PaymeAuthGuard implements CanActivate {
 			authHeader.split(' ')[1] || '',
 			'base64'
 		).toString()
-		console.log('decode', decodedAuth)
 
 		// const [username, password] = decodedAuth.split(':')
 
 		// console.log('username', username)
 		// console.log('password', password)
 
-		const PAYME_USERNAME = this.configService.get<string>('PAYME_LOGIN')
+		const PAYME_USERNAME = 'Paycom'
 		const PAYME_MERCHANT_KEY = this.configService.get<string>(
 			'PAYME_SECRET_KEY_TEST'
 		)

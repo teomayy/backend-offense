@@ -88,8 +88,9 @@ model Payment {
   updatedAt     DateTime      @updatedAt @map("updated_at")
   performTime   DateTime?     @map("perform_time")
   cancelTime    DateTime?     @map("cancel_time")
-  reason        String?
+  reason        Int?
   amount        Int
+  state         Int?          @default(1)
   fine          Fine          @relation(fields: [fineId], references: [id])
 
   @@map("payment")
@@ -104,5 +105,5 @@ enum PaymentMethod {
 enum PaymentStatus {
   pending
   success
-  failed
+  canceled
 }
