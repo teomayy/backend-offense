@@ -40,7 +40,7 @@ export class PaymeService {
 								count: 1,
 								code: '00702001001000001',
 								package_code: '123456',
-								vat_percent: 15
+								vat_percent: 12
 							}
 						]
 					}
