@@ -1,18 +1,20 @@
 import { HttpService } from '@nestjs/axios'
-import { Injectable } from '@nestjs/common'
+import { Injectable, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { lastValueFrom } from 'rxjs'
 
 @Injectable()
-export class EskizService {
+export class EskizService implements OnModuleInit {
 	private token: string
 	private tokenExpiry: number = 0
 
 	constructor(
 		private readonly httpService: HttpService,
 		private readonly configService: ConfigService
-	) {
-		this.authenticate()
+	) {}
+
+	async onModuleInit() {
+		await this.authenticate()
 	}
 
 	private async authenticate() {
@@ -34,6 +36,10 @@ export class EskizService {
 			console.error('Ошибка авторизации в Eskiz:', error.message)
 			throw new Error('Ошибка авторизации в Eskiz')
 		}
+	}
+
+	private isTokenValid(): boolean {
+		return this.token && Date.now() < this.tokenExpiry
 	}
 
 	private async refreshToken() {
@@ -71,10 +77,6 @@ export class EskizService {
 			)
 			await this.authenticate()
 		}
-	}
-
-	private isTokenValid(): boolean {
-		return this.token && Date.now() < this.tokenExpiry
 	}
 
 	async sendSms(
