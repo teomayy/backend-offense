@@ -55,7 +55,7 @@ export class EskizService {
 				)
 			)
 
-			if ((response.data.message = 'token_generated')) {
+			if (response.data.message === 'token_generated') {
 				this.token = response.data.data.token
 				this.tokenExpiry = Date.now() + 86400 * 1000
 			} else {

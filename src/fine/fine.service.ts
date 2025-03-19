@@ -97,7 +97,7 @@ export class FineService {
 		})
 
 		if (!fine) {
-			throw new NotFoundException('Штраф не найден')
+			throw new NotFoundException('Штраф не найден тут 1')
 		}
 
 		const currentDate = new Date()
@@ -145,7 +145,7 @@ export class FineService {
 
 	async updateFine(fineId: string, dto: UpdateFineDto) {
 		const fine = await this.getFineById(fineId)
-		if (!fine) throw new NotFoundException('Штраф не найден')
+		if (!fine) throw new NotFoundException('Штраф не найден тут 2')
 
 		const updatedFine = await this.prisma.fine.update({
 			where: { id: fineId },
@@ -161,7 +161,7 @@ export class FineService {
 		const fine = await this.getFineById(fineId)
 		if (!fine) {
 			console.error(`❌ Штраф с ID ${fineId} не найден!`)
-			throw new NotFoundException('Штраф не найден')
+			throw new NotFoundException('Штраф не найден тут 3')
 		}
 
 		console.log(`✅ Штраф найден: ${JSON.stringify(fine, null, 2)}`)
@@ -215,7 +215,7 @@ export class FineService {
 			include: { FineType: true }
 		})
 
-		if (!fine) throw new NotFoundException('Штраф не найден')
+		if (!fine) throw new NotFoundException('Штраф не найден тут 4')
 
 		return fine
 	}
@@ -226,7 +226,7 @@ export class FineService {
 
 	async updateFineStatus(fineId: string) {
 		const fine = await this.getFineById(fineId)
-		if (!fine) throw new NotFoundException('Штраф не найден')
+		if (!fine) throw new NotFoundException('Штраф не найден тут 5')
 
 		if (fine.status === FineStatus.paid) {
 			throw new BadRequestException('Штраф уже оплачен')
