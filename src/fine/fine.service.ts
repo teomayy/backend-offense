@@ -76,10 +76,10 @@ export class FineService {
 				}
 			})
 
-			// await this.eskizService.sendSms(
-			// 	dto.phone,
-			// 	`Вам выписан штраф на сумму ${amount} сум. Если оплатите до ${dueDate.toLocaleDateString()}, сумма составит ${discountedAmount} сум. Оплата по счету: ${fine.paymentReference}.`
-			// )
+			await this.eskizService.sendSms(
+				dto.phone,
+				`Вам выписан штраф на сумму ${amount} сум. Если оплатите до ${dueDate.toLocaleDateString()}, сумма составит ${discountedAmount} сум. Оплата по счету: ${fine.paymentReference}.`
+			)
 
 			return {
 				message: 'Штраф создан. Выберите способ оплаты.',
