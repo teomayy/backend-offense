@@ -35,4 +35,8 @@ export class FineTypeService {
 	async getFineTypeById(id: string) {
 		return this.prisma.fineType.findUnique({ where: { id } })
 	}
+
+	async deleteFineType(id: string) {
+		return this.prisma.fineType.delete({ where: { id } })
+	}
 }

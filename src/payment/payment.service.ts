@@ -14,9 +14,9 @@ export class PaymeService {
 		private configService: ConfigService,
 		private readonly prisma: PrismaService
 	) {
-		this.PAYME_KEY = this.configService.get<string>('PAYME_SECRET_KEY_TEST')
+		this.PAYME_KEY = this.configService.get<string>('PAYME_SECRET_KEY_PROD')
 		this.PAYME_MERCHANT_ID = this.configService.get<string>('PAYME_MERCHANT_ID')
-		this.PAYME_BASE_URL = 'https://test.paycom.uz'
+		this.PAYME_BASE_URL = 'https://checkout.paycom.uz/api'
 	}
 
 	/**
@@ -38,8 +38,8 @@ export class PaymeService {
 								title: 'Оплата штрафа',
 								price: amount,
 								count: 1,
-								code: '00702001001000001',
-								package_code: '123456',
+								code: '10902002003000999',
+								package_code: '1321964',
 								vat_percent: 12
 							}
 						]
@@ -47,13 +47,13 @@ export class PaymeService {
 				}
 			}
 
-			const xAuth = `${'5e730e8e0b852a417aa49ceb'.trim()}:${'ZPDODSiTYKuX0jyO7Kl2to4rQbNwG08jbghj'.trim()}`
+			const xAuth = `${this.PAYME_MERCHANT_ID.trim()}:${this.PAYME_KEY.trim()}`
 
 			console.log('🔹 PAYME_AUTH:', xAuth)
 			console.log('🔹 PAYME_PAYLOAD:', JSON.stringify(payload, null, 2))
 
 			const response = await axios.post(
-				`https://checkout.test.paycom.uz/api`, // ✅ Убрал `/api`
+				`${this.PAYME_BASE_URL}`, // ✅ Убрал `/api`
 				payload,
 				{
 					headers: {
@@ -90,13 +90,13 @@ export class PaymeService {
 				}
 			}
 
-			const xAuth = `${'5e730e8e0b852a417aa49ceb'.trim()}:${'ZPDODSiTYKuX0jyO7Kl2to4rQbNwG08jbghj'.trim()}`
+			const xAuth = `${this.PAYME_MERCHANT_ID.trim()}:${this.PAYME_KEY.trim()}`
 
 			console.log('🔹 PAYME_AUTH:', xAuth)
 			console.log('🔹 PAYME_PAYLOAD:', JSON.stringify(payload, null, 2))
 
 			const response = await axios.post(
-				`https://checkout.test.paycom.uz/api`, // ✅ Убрал `/api`
+				`${this.PAYME_BASE_URL}`, // ✅ Убрал `/api`
 				payload,
 				{
 					headers: {
