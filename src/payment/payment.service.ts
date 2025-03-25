@@ -17,6 +17,10 @@ export class PaymeService {
 		this.PAYME_KEY = this.configService.get<string>('PAYME_SECRET_KEY_PROD')
 		this.PAYME_MERCHANT_ID = this.configService.get<string>('PAYME_MERCHANT_ID')
 		this.PAYME_BASE_URL = 'https://checkout.paycom.uz/api'
+		if (!this.PAYME_KEY || !this.PAYME_MERCHANT_ID) {
+			console.error('❌ PAYME конфигурация не найдена!')
+			throw new Error('PAYME ключи не настроены')
+		}
 	}
 
 	/**
@@ -47,7 +51,7 @@ export class PaymeService {
 				}
 			}
 
-			const xAuth = `${this.PAYME_MERCHANT_ID.trim()}:${this.PAYME_KEY.trim()}`
+			const xAuth = `${this.PAYME_MERCHANT_ID?.trim()}:${this.PAYME_KEY?.trim()}`
 
 			console.log('🔹 PAYME_AUTH:', xAuth)
 			console.log('🔹 PAYME_PAYLOAD:', JSON.stringify(payload, null, 2))
@@ -90,7 +94,7 @@ export class PaymeService {
 				}
 			}
 
-			const xAuth = `${this.PAYME_MERCHANT_ID.trim()}:${this.PAYME_KEY.trim()}`
+			const xAuth = `${this.PAYME_MERCHANT_ID?.trim()}:${this.PAYME_KEY?.trim()}`
 
 			console.log('🔹 PAYME_AUTH:', xAuth)
 			console.log('🔹 PAYME_PAYLOAD:', JSON.stringify(payload, null, 2))
