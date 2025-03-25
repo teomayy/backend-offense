@@ -31,7 +31,7 @@ export class PaymeAuthGuard implements CanActivate {
 
 		const PAYME_USERNAME = 'Paycom'
 		const PAYME_MERCHANT_KEY = this.configService.get<string>(
-			'PAYME_SECRET_KEY_TEST'
+			'PAYME_SECRET_KEY_PROD'
 		)
 
 		if (decodedAuth !== `${PAYME_USERNAME}:${PAYME_MERCHANT_KEY}`) {
