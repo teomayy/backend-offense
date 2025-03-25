@@ -16,7 +16,7 @@ export class PaymeService {
 	) {
 		this.PAYME_KEY = this.configService.get<string>('PAYME_SECRET_KEY_PROD')
 		this.PAYME_MERCHANT_ID = this.configService.get<string>('PAYME_MERCHANT_ID')
-		this.PAYME_BASE_URL = 'https://checkout.paycom.uz/'
+		this.PAYME_BASE_URL = 'https://checkout.paycom.uz/api'
 		if (!this.PAYME_KEY || !this.PAYME_MERCHANT_ID) {
 			console.error('❌ PAYME конфигурация не найдена!')
 			throw new Error('PAYME ключи не настроены')
