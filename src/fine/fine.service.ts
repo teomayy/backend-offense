@@ -121,6 +121,8 @@ export class FineService {
 				'Оплата штрафа'
 			)
 
+			console.log('NANA', receiptRes)
+
 			if (!receiptRes?.result?.receipt?._id) {
 				throw new Error('Ошибка: Payme не вернул чек (receipt)')
 			}
