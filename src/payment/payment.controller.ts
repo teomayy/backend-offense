@@ -33,26 +33,6 @@ export class PaymentController {
 		@Next() next: NextFunction
 	) {
 		try {
-			// // Check auth
-			// console.log('REQ', req.headers)
-			// const authHeader = req.headers['authorization']
-			// const logg = authHeader.toString('base64')
-			// console.log('LOFF', logg)
-
-			// const expectedAuth = `Basic ${Buffer.from(
-			// 	`Paycom:${this.configService.get('PAYME_SECRET_KEY_TEST')}`
-			// ).toString('base64')}`
-
-			// console.log('AUTH', expectedAuth)
-
-			// if (!authHeader || authHeader !== expectedAuth) {
-			// 	return res.json({
-			// 		jsonrpc: '2.0',
-			// 		error: { code: -32504, message: 'Неверная авторизация' },
-			// 		id: null
-			// 	})
-			// }
-
 			const { method, params, id } = body
 
 			let result

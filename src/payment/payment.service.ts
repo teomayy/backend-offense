@@ -57,7 +57,7 @@ export class PaymeService {
 			console.log('🔹 PAYME_PAYLOAD:', JSON.stringify(payload, null, 2))
 
 			const response = await axios.post(
-				`${this.PAYME_BASE_URL}`, // ✅ Убрал `/api`
+				`https://checkout.paycom.uz/api`,
 				payload,
 				{
 					headers: {
@@ -100,7 +100,7 @@ export class PaymeService {
 			console.log('🔹 PAYME_PAYLOAD:', JSON.stringify(payload, null, 2))
 
 			const response = await axios.post(
-				`${this.PAYME_BASE_URL}`, // ✅ Убрал `/api`
+				`https://checkout.paycom.uz/api`, // ✅ Убрал `/api`
 				payload,
 				{
 					headers: {
