@@ -32,7 +32,7 @@ export class PaymeService {
 				id: Date.now().toString(),
 				method: 'receipts.create',
 				params: {
-					amount,
+					amount: amount * 100,
 					account: { order_id: orderId },
 					description: description || 'Оплата штрафа',
 					detail: {
@@ -40,7 +40,7 @@ export class PaymeService {
 						items: [
 							{
 								title: 'Оплата штрафа',
-								price: amount,
+								price: amount * 100,
 								count: 1,
 								code: '10902002003000999',
 								package_code: '1321964',
@@ -183,7 +183,7 @@ export class PaymeService {
 				}
 			}
 
-			if (amount !== payableAmount) {
+			if (amount !== payableAmount * 100) {
 				return {
 					jsonrpc: '2.0',
 					id: null,
@@ -344,7 +344,7 @@ export class PaymeService {
 			: fine.amount
 
 		// 💰 Проверяем, совпадает ли сумма платежа
-		if (payableAmount !== amount) {
+		if (payableAmount * 100 !== amount) {
 			return {
 				jsonrpc: '2.0',
 				id: requestId, // ✅ Возвращаем ID запроса
