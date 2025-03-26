@@ -168,6 +168,24 @@ export class FineService {
 
 		console.log(`✅ Штраф найден: ${JSON.stringify(fine, null, 2)}`)
 
+		const transactions = await this.prisma.payment.findMany({
+			where: { fineId }
+		})
+
+		for (const transaction of transactions) {
+			try {
+				await this.paymeService.cancelTransaction(
+					{ id: transaction.transactionId, reason: 4 },
+					Date.now()
+				)
+			} catch (error) {
+				console.warn(
+					`Не удалось отменить транзакцию ${transaction.transactionId}:`,
+					error.message
+				)
+			}
+		}
+
 		// Удаление связанных платежей
 		await this.prisma.payment.deleteMany({
 			where: { fineId: fineId }
