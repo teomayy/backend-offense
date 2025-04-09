@@ -518,6 +518,11 @@ export class PaymeService {
 			}
 		})
 
+		await this.prisma.fine.update({
+			where: { id: transaction.fineId },
+			data: { status: 'paid' }
+		})
+
 		return {
 			jsonrpc: '2.0',
 			id: params.id,
