@@ -58,6 +58,7 @@ model Fine {
   inspector        Inspector? @relation(fields: [inspectorId], references: [id])
   FineType         FineType?  @relation(fields: [fineTypeId], references: [id])
   Payment          Payment[]
+  FileLog          FileLog[]
 
   @@map("fine")
 }
@@ -94,6 +95,15 @@ model Payment {
   fine          Fine          @relation(fields: [fineId], references: [id])
 
   @@map("payment")
+}
+
+model FileLog {
+  id        String     @id @default(cuid())
+  fineId    String     @map("fine_id")
+  fine      Fine       @relation(fields: [fineId], references: [id])
+  status    FineStatus
+  amount    Int
+  createdAt DateTime   @default(now()) @map("created_at")
 }
 
 enum PaymentMethod {

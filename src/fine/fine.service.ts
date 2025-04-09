@@ -4,8 +4,8 @@ import {
 	Logger,
 	NotFoundException
 } from '@nestjs/common'
+import { Cron, CronExpression } from '@nestjs/schedule'
 import { FineStatus } from '@prisma/client'
-
 import { EskizService } from 'src/eskiz/eskiz.service'
 import { PaymeService } from 'src/payment/payment.service'
 import { PrismaService } from 'src/prisma.service'
@@ -154,6 +154,14 @@ export class FineService {
 			data: { ...dto }
 		})
 
+		await this.prisma.fileLog.create({
+			data: {
+				fineId: fineId,
+				status: updatedFine.status,
+				amount: updatedFine.amount
+			}
+		})
+
 		return updatedFine
 	}
 
@@ -195,6 +203,70 @@ export class FineService {
 		return this.prisma.fine.delete({
 			where: { id: fineId }
 		})
+	}
+
+	@Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+	async handleExpiredFines() {
+		const expired = await this.prisma.fine.findMany({
+			where: {
+				status: FineStatus.pending,
+				dueDate: { lt: new Date() },
+				discountedAmount: { not: null }
+			}
+		})
+
+		for (const fine of expired) {
+			await this.prisma.fine.update({
+				where: { id: fine.id },
+				data: { discountedAmount: null }
+			})
+
+			await this.prisma.fileLog.create({
+				data: {
+					fineId: fine.id,
+					status: FineStatus.pending,
+					amount: fine.amount
+				}
+			})
+
+			try {
+				const amountInTiyin = fine.amount * 100
+				const receipt = await this.paymeService.createReceipt(
+					fine.id,
+					amountInTiyin,
+					'Повторный счёт по истечению скидки'
+				)
+
+				const receiptId = receipt?.result?.receipt?._id
+
+				if (receiptId) {
+					await this.paymeService.sendReceipt(
+						receiptId,
+						fine.phone,
+						`Срок скидки по штрафу истёк. Новый счёт: ${fine.amount} сум.`
+					)
+					this.logger.log(`✅ Повторный чек отправлен: fineId=${fine.id}`)
+				} else {
+					this.logger.warn(
+						`⚠️ Не удалось создать повторный чек для штрафа ${fine.id}`
+					)
+				}
+			} catch (error) {
+				this.logger.error(
+					`❌ Ошибка при отправке повторного чека для штрафа ${fine.id}:`,
+					error
+				)
+			}
+
+			try {
+				await this.eskizService.sendSms(
+					fine.phone,
+					`Срок скидки по штрафу истёк, Новый счёт: ${fine.amount} сум.`
+				)
+			} catch (error) {
+				this.logger.warn(`❌ Не удалось отправить SMS: ${error.message}`)
+			}
+		}
 	}
 
 	async getFinesWithFilters(query: {
