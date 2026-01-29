@@ -1,10 +1,12 @@
 import {
 	IsInt,
 	IsNotEmpty,
+	IsOptional,
 	IsPhoneNumber,
 	IsString,
 	Min
 } from 'class-validator'
+import { Transform } from 'class-transformer'
 
 export class CreateFineDto {
 	@IsString()
@@ -18,11 +20,14 @@ export class CreateFineDto {
 	@IsNotEmpty()
 	fineTypeId: string
 
-	@IsNotEmpty()
+	@IsOptional()
+	@Transform(({ value }) => value === '' || value === null || value === undefined ? 0 : Number(value))
 	@IsInt()
 	@Min(0)
 	baseSalary?: number
 
+	@IsOptional()
+	@Transform(({ value }) => value === '' || value === null || value === undefined ? 0 : Number(value))
 	@IsInt()
 	@Min(0)
 	amount?: number

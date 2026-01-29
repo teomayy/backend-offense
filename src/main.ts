@@ -10,11 +10,11 @@ async function bootstrap() {
 	app.setGlobalPrefix('api')
 	app.use(cookieParser())
 	app.enableCors({
-		origin: ['http://localhost:3000'],
+		origin: ['http://localhost:3000', 'https://mses-jarima.uz', 'https://www.mses-jarima.uz'],
 		credentials: true,
 		exposedHeaders: 'set_cookie',
 		allowedHeaders: ['Content-Type', 'Authorization', 'cf-ray']
 	})
-	await app.listen(4300)
+	await app.listen(process.env.PORT || 5000)
 }
 bootstrap()

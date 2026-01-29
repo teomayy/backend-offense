@@ -24,7 +24,7 @@ export class FineService {
 
 	private generatePaymentReference(): string {
 		const reference = Math.random().toString(36).substring(2, 15).toUpperCase()
-		console.log('✅ Сгенерирован номер платежа:', reference) // Логируем
+		console.log('✅ Сгенерирован номер платежа:', reference)
 		return reference
 	}
 
@@ -59,35 +59,36 @@ export class FineService {
 		const dueDate = new Date()
 		dueDate.setDate(dueDate.getDate() + 15)
 
-		try {
-			// ✅ Создаём штраф
-			const fine = await this.prisma.fine.create({
-				data: {
-					inspectorId,
-					name: dto.name,
-					phone: dto.phone,
-					fineTypeId: dto.fineTypeId,
-					baseSalary,
-					amount,
-					discountedAmount,
-					dueDate,
-					paymentReference: `F-${this.generatePaymentReference()}`,
-					status: FineStatus.pending
-				}
-			})
+		// ✅ Создаём штраф
+		const fine = await this.prisma.fine.create({
+			data: {
+				inspectorId,
+				name: dto.name,
+				phone: dto.phone,
+				fineTypeId: dto.fineTypeId,
+				baseSalary,
+				amount,
+				discountedAmount,
+				dueDate,
+				paymentReference: `F-${this.generatePaymentReference()}`,
+				status: FineStatus.pending
+			}
+		})
 
+		// ✅ Отправляем SMS (не блокирует создание штрафа)
+		try {
 			await this.eskizService.sendSms(
 				dto.phone,
 				`Вам выписан штраф на сумму ${amount} сум. Если оплатите до ${dueDate.toLocaleDateString()}, сумма составит ${discountedAmount} сум. Оплата по счету: ${fine.paymentReference}.`
 			)
+			console.log('✅ SMS отправлено успешно')
+		} catch (smsError) {
+			console.warn('⚠️ SMS не отправлено, но штраф создан:', smsError.message)
+		}
 
-			return {
-				message: 'Штраф создан. Выберите способ оплаты.',
-				fineId: fine.id
-			}
-		} catch (error) {
-			console.error('❌ Ошибка при создании штрафа и транзакции:', error)
-			throw new BadRequestException('Не удалось создать штраф и транзакцию')
+		return {
+			message: 'Штраф создан. Выберите способ оплаты.',
+			fineId: fine.id
 		}
 	}
 
@@ -97,13 +98,12 @@ export class FineService {
 		})
 
 		if (!fine) {
-			throw new NotFoundException('Штраф не найден тут 1')
+			throw new NotFoundException('Штраф не найден')
 		}
 
 		const currentDate = new Date()
 		const dueDate = new Date(fine.dueDate)
 
-		// 🏷 Если оплата в течение 15 дней — применяется скидка
 		const payableAmount =
 			currentDate <= dueDate && fine.discountedAmount
 				? fine.discountedAmount
@@ -121,15 +121,12 @@ export class FineService {
 				'Оплата штрафа'
 			)
 
-			console.log('NANA', receiptRes)
-
 			if (!receiptRes?.result?.receipt?._id) {
 				throw new Error('Ошибка: Payme не вернул чек (receipt)')
 			}
 
 			const transactionId = receiptRes.result.receipt._id
 
-			// ✅ Отправляем чек клиенту
 			const receiptResponse = await this.paymeService.sendReceipt(
 				transactionId,
 				fine.phone,
@@ -147,7 +144,7 @@ export class FineService {
 
 	async updateFine(fineId: string, dto: UpdateFineDto) {
 		const fine = await this.getFineById(fineId)
-		if (!fine) throw new NotFoundException('Штраф не найден тут 2')
+		if (!fine) throw new NotFoundException('Штраф не найден')
 
 		const updatedFine = await this.prisma.fine.update({
 			where: { id: fineId },
@@ -166,15 +163,10 @@ export class FineService {
 	}
 
 	async deleteFine(fineId: string) {
-		console.log(`🔹 Удаление штрафа с ID: ${fineId}`)
-
 		const fine = await this.getFineById(fineId)
 		if (!fine) {
-			console.error(`❌ Штраф с ID ${fineId} не найден!`)
-			throw new NotFoundException('Штраф не найден тут 3')
+			throw new NotFoundException('Штраф не найден')
 		}
-
-		console.log(`✅ Штраф найден: ${JSON.stringify(fine, null, 2)}`)
 
 		const transactions = await this.prisma.payment.findMany({
 			where: { fineId }
@@ -187,19 +179,14 @@ export class FineService {
 					Date.now()
 				)
 			} catch (error) {
-				console.warn(
-					`Не удалось отменить транзакцию ${transaction.transactionId}:`,
-					error.message
-				)
+				console.warn(`Не удалось отменить транзакцию ${transaction.transactionId}:`, error.message)
 			}
 		}
 
-		// Удаление связанных платежей
 		await this.prisma.payment.deleteMany({
 			where: { fineId: fineId }
 		})
 
-		// Удаление штрафа
 		return this.prisma.fine.delete({
 			where: { id: fineId }
 		})
@@ -245,17 +232,9 @@ export class FineService {
 						fine.phone,
 						`Срок скидки по штрафу истёк. Новый счёт: ${fine.amount} сум.`
 					)
-					this.logger.log(`✅ Повторный чек отправлен: fineId=${fine.id}`)
-				} else {
-					this.logger.warn(
-						`⚠️ Не удалось создать повторный чек для штрафа ${fine.id}`
-					)
 				}
 			} catch (error) {
-				this.logger.error(
-					`❌ Ошибка при отправке повторного чека для штрафа ${fine.id}:`,
-					error
-				)
+				this.logger.error(`Ошибка при отправке повторного чека для штрафа ${fine.id}:`, error)
 			}
 
 			try {
@@ -264,7 +243,7 @@ export class FineService {
 					`Срок скидки по штрафу истёк, Новый счёт: ${fine.amount} сум.`
 				)
 			} catch (error) {
-				this.logger.warn(`❌ Не удалось отправить SMS: ${error.message}`)
+				this.logger.warn(`Не удалось отправить SMS: ${error.message}`)
 			}
 		}
 	}
@@ -276,7 +255,6 @@ export class FineService {
 		endDate?: string
 	}) {
 		const { inspectorId, status, startDate, endDate } = query
-
 		const where: any = {}
 
 		if (inspectorId) where.inspectorId = inspectorId
@@ -288,9 +266,6 @@ export class FineService {
 		return this.prisma.fine.findMany({ where, orderBy: { createdAt: 'desc' } })
 	}
 
-	/**
-	 * Получение штрафов инспектора
-	 */
 	async getFinesByInspector(inspectorId: string) {
 		return this.prisma.fine.findMany({
 			where: { inspectorId },
@@ -298,17 +273,13 @@ export class FineService {
 		})
 	}
 
-	/**
-	 * Получение информации о конкретном штрафе
-	 */
 	async getFineById(fineId: string) {
 		const fine = await this.prisma.fine.findUnique({
 			where: { id: fineId },
 			include: { FineType: true }
 		})
 
-		if (!fine) throw new NotFoundException('Штраф не найден тут 4')
-
+		if (!fine) throw new NotFoundException('Штраф не найден')
 		return fine
 	}
 
@@ -318,7 +289,7 @@ export class FineService {
 
 	async updateFineStatus(fineId: string) {
 		const fine = await this.getFineById(fineId)
-		if (!fine) throw new NotFoundException('Штраф не найден тут 5')
+		if (!fine) throw new NotFoundException('Штраф не найден')
 
 		if (fine.status === FineStatus.paid) {
 			throw new BadRequestException('Штраф уже оплачен')
@@ -332,31 +303,22 @@ export class FineService {
 		return { message: 'Статус штрафа обновлен' }
 	}
 
-	/**
-	 * Получение статистики по штрафам инспектора
-	 */
-
 	async getInspectorStats(inspectorId: string) {
-		// Общее количество штрафов
 		const totalFines = await this.prisma.fine.count({
 			where: { inspectorId }
 		})
 
-		// Количество оплаченных штрафов
 		const paidFines = await this.prisma.fine.count({
 			where: { inspectorId, status: FineStatus.paid }
 		})
 
-		// Общая сумма выписанных штрафов
 		const pendingFines = totalFines - paidFines
 
-		// Общая сумма выписанных штрафов
 		const totalAmount = await this.prisma.fine.aggregate({
 			where: { inspectorId },
 			_sum: { amount: true }
 		})
 
-		// Сумма оплаченных штрафов
 		const paidAmount = await this.prisma.fine.aggregate({
 			where: { inspectorId, status: FineStatus.paid },
 			_sum: { amount: true }
